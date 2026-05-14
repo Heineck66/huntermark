@@ -16,8 +16,10 @@
 │        │                                                             │
 │        └──► binds prefix+M-h     ─►  display-popup ─► less help.txt  │
 │                                                                      │
-│   scripts/mark-status.sh  (run by user's status-right format)        │
-│        └──► reads ~/.tmux/marks.sh, emits styled chips               │
+│   scripts/mark-status.sh  (re-run by every mutation script)          │
+│        ├──► reads ~/.tmux/marks.sh                                   │
+│        ├──► writes the chip string to @huntermark-bar (tmux opt)     │
+│        └──► also prints to stdout (legacy #() callers still work)    │
 └──────────────────────────────────────────────────────────────────────┘
                                  ▲
                                  │ writes
@@ -83,9 +85,16 @@ A user might add a mark in pane A, then run `mssh m2` in pane B that's been open
 - `mark-remove.sh` rewrites the file via grep+filter; never appends. Safe to run repeatedly.
 - `install.sh` checks for a tag string before appending to rc; safe to re-run.
 
+## Chip update model
+
+Two ways to wire the chip into `status-right`:
+
+- **Push (recommended): `#{@huntermark-bar}`.** Every mutation script (`mark-set`, `mark-remove`, `mark-edit`, `mark-undo`) calls `mark-status.sh` at the end, which recomputes the chip string and writes it to the `@huntermark-bar` user option. `refresh-client -S` then redraws the status bar — so removals and edits reflect immediately, no polling lag.
+- **Pull (legacy): `#(mark-status.sh)`.** Tmux re-executes `#()` shell formats on `status-interval` cadence (default 5 s) and caches the output between runs, so a removal can linger on the bar until the next tick. Still supported because `mark-status.sh` continues to print its result to stdout alongside writing the option.
+
 ## Performance
 
-- Helpers run in <50 ms typically. The status-bar widget runs once per `status-interval` (default 5 s).
+- Helpers run in <50 ms typically. With the push model the chip only re-renders on actual mutations, so steady-state cost is zero.
 - The precmd hook does `[ -r FILE ] && source FILE` — fast path is a stat call (microseconds), slow path is sourcing ~1 KB of shell. Negligible.
 
 ## Limitations / future work

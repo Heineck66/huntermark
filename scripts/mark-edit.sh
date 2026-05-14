@@ -49,5 +49,6 @@ mv "${F}.new" "$F"
 ts=$(date -Iseconds)
 printf "%s\tedit\t%s\t%s\n" "$ts" "$n" "$new_input" >> "$HISTORY"
 
+"${0%/*}/mark-status.sh" >/dev/null 2>&1 || true
 tmux refresh-client -S 2>/dev/null || true
 if [ -t 1 ]; then echo "edited ${n}=${new_ip}"; fi

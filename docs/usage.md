@@ -106,14 +106,18 @@ Hit `prefix + t`. A prompt appears at the bottom: `mark target:`. Type the same 
 
 | Command | What it runs |
 |---|---|
-| `mssh mN [user]` | `ssh user@$mN` (default user: `root`) |
+| `mssh mN [user] [ssh-flags...]` | `ssh [ssh-flags] user@$mN` (default user: `root`) |
 | `mnmap mN [args...]` | `nmap [args] $mN` |
 | `mcurl mN [args...]` | `curl [args] http://$mN` |
 | `mping mN [args...]` | `ping [args] $mN` |
 
+For `mssh`, the second arg is treated as the SSH username when it doesn't start with `-`; otherwise it's an ssh flag and the username defaults to `root`. Any further args pass straight to `ssh`.
+
 ```bash
 mssh m1                          # ssh root@$m1
 mssh m2 admin                    # ssh admin@$m2
+mssh m1 -v                       # ssh -v root@$m1
+mssh m2 admin -p 2222 -v         # ssh -p 2222 -v admin@$m2
 mnmap m1 -sV -p-                 # nmap -sV -p- $m1
 mnmap m1 --top-ports 100         # nmap --top-ports 100 $m1
 mcurl m2 -sIL                    # curl -sIL http://$m2
@@ -148,7 +152,7 @@ mark edit m2 Devbox 10.10.10.250
 edited m2=10.10.10.250
 ```
 
-Index stays. Variable updates. Chip refreshes within `status-interval` (5 s).
+Index stays. Variable updates. Chip refreshes instantly when wired via `#{@huntermark-bar}` (recommended); the legacy `#(...)` form refreshes within `status-interval` (5 s).
 
 ---
 
@@ -325,11 +329,16 @@ Or open a fresh terminal. If still missing, the install snippet wasn't appended 
 
 ### Chip doesn't appear on the status bar
 
-You haven't wired the widget into your `status-right`. Add (adjust path if needed):
+You haven't wired the widget into your `status-right`. Recommended (instant updates):
+```tmux
+set -g status-right "#{@huntermark-bar} %H:%M %d-%b "
+```
+Reload tmux conf (`prefix + r` or your reload binding).
+
+If you're on an older tmux that doesn't support `#{@user-option}` interpolation, fall back to the legacy form (refreshes within `status-interval`, default 5 s):
 ```tmux
 set -g status-right "#(/home/$USER/.config/tmux/plugins/huntermark/scripts/mark-status.sh) %H:%M %d-%b "
 ```
-Reload tmux conf (`prefix + r` or your reload binding).
 
 ### `prefix + t` opens "rename window" not the mark prompt
 

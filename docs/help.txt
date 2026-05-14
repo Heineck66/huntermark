@@ -7,12 +7,21 @@ on the tmux status bar. Status bar shows the 3 most recent; older marks stay
 accessible as variables.
 
 ──────────────────────────────────────────────────────────────────────────────
+KEY NOTATION
+──────────────────────────────────────────────────────────────────────────────
+
+  prefix        your tmux prefix    (default: Ctrl-b)
+  C-x           Ctrl + x
+  M-x           Meta + x            (on Linux: Alt + x)
+  prefix + M-t  press the prefix, release, then hold Alt and tap t
+
+──────────────────────────────────────────────────────────────────────────────
 TMUX CHORDS  (need prefix; defaults below; configurable via @huntermark-chord-*)
 ──────────────────────────────────────────────────────────────────────────────
 
   prefix + t          add a mark   (prompt: "mark target:")
-  prefix + M-t        remove marks (prompt: "remove marks (all|mN|csv):")
-  prefix + M-h        open this cheatsheet
+  prefix + Alt + t    remove marks (prompt: "remove marks (all|mN|csv):")
+  prefix + Alt + h    open this cheatsheet
 
 ──────────────────────────────────────────────────────────────────────────────
 SHELL COMMANDS
@@ -34,7 +43,7 @@ SHELL COMMANDS
 QUICK WRAPPERS  (resolve mN → IP, then run the tool)
 ──────────────────────────────────────────────────────────────────────────────
 
-  mssh  mN [user]           ssh user@$mN     (default user: root)
+  mssh  mN [user] [flags…]  ssh [flags] user@$mN     (default user: root)
   mnmap mN [args...]        nmap [args] $mN
   mcurl mN [args...]        curl [args] http://$mN
   mping mN [args...]        ping [args] $mN
@@ -53,7 +62,10 @@ EXAMPLES
   mark Forge 10.10.10.42                  $m1=10.10.10.42, chip "m1: Forge ..."
   mark Devbox 10.10.10.99                 $m2=10.10.10.99
   mark edit m1 Forge 10.10.10.43          fix typo'd IP without rolling the index
+  mssh m1                                 ssh root@10.10.10.43
   mssh m1 admin                           ssh admin@10.10.10.43
+  mssh m1 -v                              ssh -v root@10.10.10.43
+  mssh m1 admin -p 2222 -v                ssh -p 2222 -v admin@10.10.10.43
   mnmap m2 -sV -p 22,80,443               nmap -sV -p 22,80,443 10.10.10.99
   mcurl m2 -sI                            curl -sI http://10.10.10.99
   unmark m1                               remove m1 (soft-deleted to trash)
@@ -65,14 +77,15 @@ EXAMPLES
 STATUS BAR WIDGET
 ──────────────────────────────────────────────────────────────────────────────
 
-To show marks on your tmux status bar, add this to your tmux.conf
-status-right (or status-left), then reload:
+Recommended — read the chip from the @huntermark-bar user option. Mutations
+push to this option directly so removals and edits show up instantly:
 
-  set -g status-right "#(#{@huntermark-widget-path}) ... rest of status-right"
+  set -g status-right "#{@huntermark-bar} ... rest of status-right"
 
-Or hardcode the path:
+Legacy — still supported for back-compat. tmux re-runs #() shell formats once
+per status-interval (default 5s), so removals can lag visibly:
 
-  set -g status-right "#(/home/<user>/.config/tmux/plugins/huntermark/scripts/mark-status.sh) ..."
+  set -g status-right "#(#{@huntermark-widget-path}) ..."
 
 The widget emits up to 3 chips (newest 3 by index) joined with " | ".
 

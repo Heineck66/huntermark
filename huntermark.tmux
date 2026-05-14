@@ -26,5 +26,10 @@ tmux bind-key "$CHORD_HELP" display-popup -E -w 90% -h 90% \
   "less -N -i -S '$CURRENT_DIR/docs/help.txt'"
 
 # Expose the status-widget path as a tmux user option so users can reference it
-# in their status-right with: #(#{@huntermark-widget-path})
+# in their status-right with the legacy: #(#{@huntermark-widget-path})
 tmux set-option -g @huntermark-widget-path "$CURRENT_DIR/scripts/mark-status.sh"
+
+# Seed @huntermark-bar from any existing marks.sh so the recommended
+# `set -g status-right "#{@huntermark-bar} ..."` wiring renders immediately
+# on tmux start, before the user has touched any mark this session.
+"$CURRENT_DIR/scripts/mark-status.sh" >/dev/null 2>&1 || true

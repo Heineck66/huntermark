@@ -57,5 +57,6 @@ full=$(echo "$restored" | grep "_full=" \
        | (source /dev/stdin 2>/dev/null; ref="m${target_n}_full"; printf '%s' "${!ref}"))
 printf "%s\tundo\tm%s\t%s\n" "$ts" "$target_n" "$full" >> "$HISTORY"
 
+"${0%/*}/mark-status.sh" >/dev/null 2>&1 || true
 tmux refresh-client -S 2>/dev/null || true
 if [ -t 1 ]; then echo "restored m${target_n}"; fi

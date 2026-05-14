@@ -81,13 +81,23 @@ Open a new shell (or `source ~/.bashrc` / `source ~/.zshrc`) to pick up the func
 
 ### 3. Status bar widget (optional but recommended)
 
-To see chips on your status bar, add the widget path to your `status-right` (or `status-left`):
+To see chips on your status bar, add the `@huntermark-bar` user option to your `status-right` (or `status-left`):
+
+```tmux
+set -g status-right "#{@huntermark-bar} %H:%M %d-%b "
+```
+
+Reload tmux conf. Chips appear when you add marks, and disappear instantly when you remove them — mutations push directly to the option, so there's no `status-interval` polling lag.
+
+<details>
+<summary>Legacy <code>#(...)</code> form</summary>
+
+If you're on an older tmux that doesn't support `#{@user-option}` interpolation, the script is still callable directly. Chip changes will reflect within `status-interval` (default 5 s):
 
 ```tmux
 set -g status-right "#(/home/$USER/.config/tmux/plugins/huntermark/scripts/mark-status.sh) %H:%M %d-%b "
 ```
-
-Reload tmux conf. Chips appear when you add marks.
+</details>
 
 ## Configuration
 
@@ -106,9 +116,9 @@ set -g @huntermark-style-value 'fg=yellow,bold'   # style of the chip value
 
 - **Storage**: `~/.tmux/marks.sh` holds `export mN=<ip>` and `export mN_full=<input>` lines, one set per mark. Idempotent appends.
 - **Cross-pane visibility**: a `precmd` (zsh) or `PROMPT_COMMAND` (bash) hook sources `~/.tmux/marks.sh` on every prompt. New marks appear as `$mN` in all open shells after they next render a prompt.
-- **Chip rendering**: `scripts/mark-status.sh` reads `~/.tmux/marks.sh`, sorts by N, takes the most recent 3 (or `@huntermark-max-chips`), emits styled tmux format strings. Tmux re-renders the bar every `status-interval`.
+- **Chip rendering (push model)**: every mutation script (`mark-set`, `mark-remove`, `mark-edit`, `mark-undo`) calls `scripts/mark-status.sh` at the end, which reads `~/.tmux/marks.sh`, takes the most recent 3 (or `@huntermark-max-chips`), and writes the styled chip string to the `@huntermark-bar` tmux user option. `status-right` reads the option via `#{@huntermark-bar}` and a follow-up `refresh-client -S` triggers an immediate redraw — so removals and edits clear from the bar instantly.
 - **Removal preserves indices**: removing m2 doesn't renumber m3 → m2. Stable references matter when you've memorized "$m4 is the kerberoastable one."
-- **IP parsing**: first IPv4 in the input becomes `$mN`. If no IPv4 found, the full input becomes `$mN`.
+- **IP / hostname parsing**: first IPv4 in the input becomes `$mN`. If no IPv4 is found, the first hostname-shaped token (alnum/dash with at least one dot, e.g. `forge.htb`) is used. If neither is present (e.g. `mark --help`), the call is rejected with `mark: missing ip/hostname` and nothing is written.
 
 ## Documentation
 
