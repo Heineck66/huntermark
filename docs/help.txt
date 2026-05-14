@@ -1,0 +1,101 @@
+═══════════════════════════════════════════════════════════════════════════════
+                       HunterMark — target tracker for tmux
+═══════════════════════════════════════════════════════════════════════════════
+
+Designate machines you're hunting. Marks live as $mN shell variables AND chips
+on the tmux status bar. Status bar shows the 3 most recent; older marks stay
+accessible as variables.
+
+──────────────────────────────────────────────────────────────────────────────
+TMUX CHORDS  (need prefix; defaults below; configurable via @huntermark-chord-*)
+──────────────────────────────────────────────────────────────────────────────
+
+  prefix + t          add a mark   (prompt: "mark target:")
+  prefix + M-t        remove marks (prompt: "remove marks (all|mN|csv):")
+  prefix + M-h        open this cheatsheet
+
+──────────────────────────────────────────────────────────────────────────────
+SHELL COMMANDS
+──────────────────────────────────────────────────────────────────────────────
+
+  mark <name> <ip>          add a mark
+  mark                      pretty table of current marks
+  mark edit mN <new value>  in-place update of an existing mark (index stays)
+  mark undo                 restore the most recent deletion from trash
+  mark history [N|all]      show timestamped operation log (default: last 20)
+  mark help                 open this cheatsheet (popup if in tmux)
+
+  unmark mN                 remove specific mark (soft-deleted to trash)
+  unmark mN,mM              remove multiple
+  unmark all                clear everything (confirms; trash gets all entries)
+  unmark all -y             skip confirmation
+
+──────────────────────────────────────────────────────────────────────────────
+QUICK WRAPPERS  (resolve mN → IP, then run the tool)
+──────────────────────────────────────────────────────────────────────────────
+
+  mssh  mN [user]           ssh user@$mN     (default user: root)
+  mnmap mN [args...]        nmap [args] $mN
+  mcurl mN [args...]        curl [args] http://$mN
+  mping mN [args...]        ping [args] $mN
+
+──────────────────────────────────────────────────────────────────────────────
+SHELL VARIABLES  (auto-set on each `mark` call, refreshed every prompt)
+──────────────────────────────────────────────────────────────────────────────
+
+  $mN          first IPv4 from input
+  $mN_full     full input string
+
+──────────────────────────────────────────────────────────────────────────────
+EXAMPLES
+──────────────────────────────────────────────────────────────────────────────
+
+  mark Forge 10.10.10.42                  $m1=10.10.10.42, chip "m1: Forge ..."
+  mark Devbox 10.10.10.99                 $m2=10.10.10.99
+  mark edit m1 Forge 10.10.10.43          fix typo'd IP without rolling the index
+  mssh m1 admin                           ssh admin@10.10.10.43
+  mnmap m2 -sV -p 22,80,443               nmap -sV -p 22,80,443 10.10.10.99
+  mcurl m2 -sI                            curl -sI http://10.10.10.99
+  unmark m1                               remove m1 (soft-deleted to trash)
+  mark undo                               restore m1
+  mark history 5                          show last 5 ops (add/edit/remove/undo)
+  unmark m1,m3                            remove multiple
+
+──────────────────────────────────────────────────────────────────────────────
+STATUS BAR WIDGET
+──────────────────────────────────────────────────────────────────────────────
+
+To show marks on your tmux status bar, add this to your tmux.conf
+status-right (or status-left), then reload:
+
+  set -g status-right "#(#{@huntermark-widget-path}) ... rest of status-right"
+
+Or hardcode the path:
+
+  set -g status-right "#(/home/<user>/.config/tmux/plugins/huntermark/scripts/mark-status.sh) ..."
+
+The widget emits up to 3 chips (newest 3 by index) joined with " | ".
+
+──────────────────────────────────────────────────────────────────────────────
+FILES
+──────────────────────────────────────────────────────────────────────────────
+
+  ~/.tmux/marks.sh                       state file, sourced on every prompt
+  ~/.tmux/marks-trash.sh                 soft-deleted marks (last 20; for undo)
+  ~/.tmux/marks-history.log              timestamped operation log
+  ~/.config/tmux/huntermark-help.txt     this cheatsheet (installed by install.sh)
+  <plugin>/scripts/mark-*.sh             helpers (set, remove, edit, undo, history, status)
+  <plugin>/shell/huntermark.{zsh,bash}   shell-side functions
+
+──────────────────────────────────────────────────────────────────────────────
+NOTES
+──────────────────────────────────────────────────────────────────────────────
+
+  - Status bar shows up to @huntermark-max-chips marks (default 3); older marks
+    are still in $mN vars.
+  - Numbering does not renumber on removal — gaps preserved so $mN mapping stays
+    stable across edits.
+  - Trash is capped at HUNTERMARK_TRASH_LIMIT (default 20) most-recent deletions.
+    `mark undo` pops the latest; if the original index is now occupied, the mark
+    is restored at the next free index.
+  - Hit `q` to dismiss this popup.
