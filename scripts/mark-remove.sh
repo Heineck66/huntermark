@@ -26,7 +26,7 @@ fi
 tmux set-option -gu @mark-remove >/dev/null 2>&1 || true
 
 [ -z "$arg" ] && exit 0
-[ -r "$F" ] || { tmux refresh-client -S 2>/dev/null || true; exit 0; }
+[ -r "$F" ] || { "${0%/*}/mark-status.sh" >/dev/null 2>&1 || true; tmux refresh-client -S 2>/dev/null || true; exit 0; }
 
 ts=$(date -Iseconds)
 
@@ -34,8 +34,12 @@ ts=$(date -Iseconds)
 _capture_and_strip() {
   local pattern="$1"
   local removed_indices
+  # NOTE: `sort -u`, not `sort -un`. Every "mN" line has no leading digit,
+  # so under numeric sort they all compare equal (value 0); `-u` then dedupes
+  # them down to a single line, which made every `unmark mN` except the
+  # lex-first mark silently no-op (the early-return below skipped the strip).
   removed_indices=$(grep -oE "^export m[0-9]+=" "$F" 2>/dev/null \
-                    | sed 's/export //; s/=//' | sort -un \
+                    | sed 's/export //; s/=//' | sort -u \
                     | grep -E "$pattern" || true)
   [ -z "$removed_indices" ] && return 0
 
@@ -86,4 +90,5 @@ if [ -r "$TRASH" ]; then
   fi
 fi
 
+"${0%/*}/mark-status.sh" >/dev/null 2>&1 || true
 tmux refresh-client -S 2>/dev/null || true
