@@ -112,7 +112,17 @@ _mark_resolve() {
   printf '%s' "$ip"
 }
 
-mssh()  { local n="$1"; local u="${2:-root}"; local ip; ip=$(_mark_resolve "$n") || return 1; ssh "$u@$ip"; }
+mssh() {
+  # mssh mN [user] [ssh-flags...]
+  # If the first arg after mN starts with `-`, it's an ssh flag and user
+  # defaults to root. Otherwise it's the username and is shifted out; any
+  # remaining args pass through to ssh.
+  local n="$1"; shift || return 1
+  local ip; ip=$(_mark_resolve "$n") || return 1
+  local user="root"
+  if [ "$#" -gt 0 ] && [ "${1:0:1}" != "-" ]; then user="$1"; shift; fi
+  ssh "$@" "$user@$ip"
+}
 mnmap() { local n="$1"; shift; local ip; ip=$(_mark_resolve "$n") || return 1; nmap "$@" "$ip"; }
 mcurl() { local n="$1"; shift; local ip; ip=$(_mark_resolve "$n") || return 1; curl "$@" "http://$ip"; }
 mping() { local n="$1"; shift; local ip; ip=$(_mark_resolve "$n") || return 1; ping "$@" "$ip"; }
