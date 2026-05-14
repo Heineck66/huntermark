@@ -7,7 +7,9 @@
 # Effect:
 #   - Appends `export mN=<ip>` and `export mN_full=<input>` to ~/.tmux/marks.sh
 #   - N auto-increments based on existing entries (gaps preserved on removal)
-#   - IP parsed as the first IPv4 in the input; falls back to full input if none
+#   - First IPv4 in input becomes $mN; on miss, first hostname-shaped token
+#     (alnum/dash + dot, e.g. forge.htb) is accepted; otherwise the call is
+#     rejected so `mark --help` / `mark foo` can't pollute the file.
 #   - Logs the add operation to ~/.tmux/marks-history.log
 set -e
 
@@ -32,7 +34,16 @@ if [ -r "$MARKS_FILE" ]; then
 fi
 
 ip=$(echo "$input" | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -1)
-[ -z "$ip" ] && ip="$input"
+if [ -z "$ip" ]; then
+  ip=$(echo "$input" | grep -oE '[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+' | head -1)
+fi
+if [ -z "$ip" ]; then
+  msg="mark: missing ip/hostname (got: ${input})"
+  echo "$msg" >&2
+  echo "usage: mark <name> <ip-or-hostname>" >&2
+  tmux display-message "$msg" 2>/dev/null || true
+  exit 1
+fi
 
 {
   printf "export m%d=%q\n"      "$next" "$ip"
@@ -42,5 +53,6 @@ ip=$(echo "$input" | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -1)
 ts=$(date -Iseconds)
 printf "%s\tadd\tm%d\t%s\n" "$ts" "$next" "$input" >> "$HISTORY_FILE"
 
+"${0%/*}/mark-status.sh" >/dev/null 2>&1 || true
 tmux refresh-client -S 2>/dev/null || true
 if [ -t 1 ]; then echo "marked m${next}=${ip}"; fi
