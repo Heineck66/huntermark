@@ -3,8 +3,9 @@
 ═══════════════════════════════════════════════════════════════════════════════
 
 Designate machines you're hunting. Marks live as $mN shell variables AND chips
-on the tmux status bar. Status bar shows the 3 most recent; older marks stay
-accessible as variables.
+on the tmux status bar. Status bar shows up to @huntermark-max-chips (default
+3); the rest are tracked via the all-marks popup and remain accessible as
+shell variables.
 
 ──────────────────────────────────────────────────────────────────────────────
 KEY NOTATION
@@ -19,59 +20,95 @@ KEY NOTATION
 TMUX CHORDS  (need prefix; defaults below; configurable via @huntermark-chord-*)
 ──────────────────────────────────────────────────────────────────────────────
 
-  prefix + t          add a mark   (prompt: "mark target:")
-  prefix + Alt + t    remove marks (prompt: "remove marks (all|mN|csv):")
+  prefix + t          add a mark    (prompt: "mark target:")
+  prefix + Alt + t    remove marks  (prompt: "remove marks (all|mN|csv):")
   prefix + Alt + h    open this cheatsheet
+  prefix + m          open all-marks popup (browse, pin, unpin)
 
 ──────────────────────────────────────────────────────────────────────────────
 SHELL COMMANDS
 ──────────────────────────────────────────────────────────────────────────────
 
-  mark <name> <ip>          add a mark
-  mark                      pretty table of current marks
-  mark edit mN <new value>  in-place update of an existing mark (index stays)
-  mark undo                 restore the most recent deletion from trash
-  mark history [N|all]      show timestamped operation log (default: last 20)
-  mark help                 open this cheatsheet (popup if in tmux)
+  mark <name> <target>          add a mark; target = IPv4 / FQDN / NetBIOS
+  mark                          pretty table of all marks
+  mark edit mN <new value>      in-place update of an existing mark
+  mark pin   mN [mM ...]        pin marks so they stay on the bar
+  mark unpin mN [mM ...]        unpin marks (let recency rule again)
+  mark pin                      list currently-pinned marks
+  mark undo                     restore the most recent deletion from trash
+  mark history [N|all]          show timestamped operation log (default: 20)
+  mark help                     open this cheatsheet (popup if in tmux)
 
-  unmark mN                 remove specific mark (soft-deleted to trash)
-  unmark mN,mM              remove multiple
-  unmark all                clear everything (confirms; trash gets all entries)
-  unmark all -y             skip confirmation
+  unmark mN                     remove specific mark (soft-deleted to trash)
+  unmark mN,mM                  remove multiple
+  unmark all                    clear everything (confirms; trash gets all)
+  unmark all -y                 skip confirmation
+
+Duplicate detection: `mark` rejects inputs whose IP or hostname already
+belongs to an existing mark (hostnames compared case-insensitively). Use
+`mark edit` to update in place, or `unmark` first.
 
 ──────────────────────────────────────────────────────────────────────────────
-QUICK WRAPPERS  (resolve mN → IP, then run the tool)
+QUICK WRAPPERS  (resolve mN → target, then run the tool)
 ──────────────────────────────────────────────────────────────────────────────
 
-  mssh  mN [user] [flags…]  ssh [flags] user@$mN     (default user: root)
+  mssh  mN [user] [flags…]  ssh [flags] user@$mN          (default user: root)
   mnmap mN [args...]        nmap [args] $mN
   mcurl mN [args...]        curl [args] http://$mN
   mping mN [args...]        ping [args] $mN
+  mhost mN                  print the hostname (for Kerberos / SMB tools)
 
 ──────────────────────────────────────────────────────────────────────────────
 SHELL VARIABLES  (auto-set on each `mark` call, refreshed every prompt)
 ──────────────────────────────────────────────────────────────────────────────
 
-  $mN          first IPv4 from input
+  $mN          primary target (IPv4 when present, hostname otherwise)
   $mN_full     full input string
+  $mN_host     explicit hostname (set when input has both IPv4 and FQDN)
+  $mN_pinned   "1" when the mark is pinned to the bar (absent otherwise)
 
 ──────────────────────────────────────────────────────────────────────────────
 EXAMPLES
 ──────────────────────────────────────────────────────────────────────────────
 
-  mark Forge 10.10.10.42                  $m1=10.10.10.42, chip "m1: Forge ..."
+  Basic
+  mark Forge 10.10.10.42                  $m1=10.10.10.42
   mark Devbox 10.10.10.99                 $m2=10.10.10.99
-  mark edit m1 Forge 10.10.10.43          fix typo'd IP without rolling the index
+  mark edit m1 Forge 10.10.10.43          fix typo'd IP without rolling index
   mssh m1                                 ssh root@10.10.10.43
   mssh m1 admin                           ssh admin@10.10.10.43
-  mssh m1 -v                              ssh -v root@10.10.10.43
   mssh m1 admin -p 2222 -v                ssh -p 2222 -v admin@10.10.10.43
   mnmap m2 -sV -p 22,80,443               nmap -sV -p 22,80,443 10.10.10.99
-  mcurl m2 -sI                            curl -sI http://10.10.10.99
-  unmark m1                               remove m1 (soft-deleted to trash)
+  unmark m1                               remove m1 (soft-deleted)
   mark undo                               restore m1
-  mark history 5                          show last 5 ops (add/edit/remove/undo)
-  unmark m1,m3                            remove multiple
+  mark history 5                          show last 5 ops
+
+  AD / Kerberos
+  mark DC01 10.10.10.40 dc01.lab.local    $m3=10.10.10.40, $m3_host=dc01.lab.local
+  mark DC02 DC02                          NetBIOS-only mark: $m4=DC02
+  mhost m3                                -> dc01.lab.local
+  kinit Administrator@LAB.LOCAL
+  evil-winrm -i $(mhost m3) -u Administrator -H <NTLM-hash>
+  impacket-secretsdump -k -no-pass $(mhost m3)
+
+  Pin / overflow
+  mark pin m1 m3                          keep m1 and m3 sticky on bar
+  mark pin                                list pinned marks
+  mark unpin m1                           let m1 drop off when newer marks land
+  # bar shows pinned first, then most-recent unpinned; "(+X)" suffix
+  # appears once total marks > @huntermark-max-chips. Use `prefix + m` to
+  # open the popup and pin/unpin interactively.
+
+──────────────────────────────────────────────────────────────────────────────
+ALL-MARKS POPUP  (prefix + m)
+──────────────────────────────────────────────────────────────────────────────
+
+Shows every mark (with NAME / IP / HOST / PIN columns) plus a footer line
+indicating which are visible on the bar. Commands inside the popup:
+
+  p N [M ...]    pin marks       (e.g. p 1 3)
+  u N [M ...]    unpin marks
+  q              quit
 
 ──────────────────────────────────────────────────────────────────────────────
 STATUS BAR WIDGET
@@ -87,7 +124,9 @@ per status-interval (default 5s), so removals can lag visibly:
 
   set -g status-right "#(#{@huntermark-widget-path}) ..."
 
-The widget emits up to 3 chips (newest 3 by index) joined with " | ".
+Render rule:
+  visible = pinned (asc by N) ++ unpinned (newest first), capped at MAX.
+  If any marks were hidden, appends a dim "(+X)" overflow chip.
 
 ──────────────────────────────────────────────────────────────────────────────
 FILES
@@ -97,18 +136,17 @@ FILES
   ~/.tmux/marks-trash.sh                 soft-deleted marks (last 20; for undo)
   ~/.tmux/marks-history.log              timestamped operation log
   ~/.config/tmux/huntermark-help.txt     this cheatsheet (installed by install.sh)
-  <plugin>/scripts/mark-*.sh             helpers (set, remove, edit, undo, history, status)
+  <plugin>/scripts/mark-*.sh             helpers (set, remove, edit, undo,
+                                            history, status, pin, popup)
   <plugin>/shell/huntermark.{zsh,bash}   shell-side functions
 
 ──────────────────────────────────────────────────────────────────────────────
 NOTES
 ──────────────────────────────────────────────────────────────────────────────
 
-  - Status bar shows up to @huntermark-max-chips marks (default 3); older marks
-    are still in $mN vars.
-  - Numbering does not renumber on removal — gaps preserved so $mN mapping stays
-    stable across edits.
-  - Trash is capped at HUNTERMARK_TRASH_LIMIT (default 20) most-recent deletions.
-    `mark undo` pops the latest; if the original index is now occupied, the mark
-    is restored at the next free index.
+  - Numbering does not renumber on removal — gaps preserved so $mN mapping
+    stays stable across edits.
+  - Trash is capped at HUNTERMARK_TRASH_LIMIT (default 20) most-recent
+    deletions. `mark undo` pops the latest; if the original index is now
+    occupied, the mark is restored at the next free index.
   - Hit `q` to dismiss this popup.

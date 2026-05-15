@@ -1,6 +1,6 @@
 # HunterMark — Usage Guide
 
-A walk-through guide for everyday use. For the terse one-screen reference, see `help.txt` (or hit `prefix + M-h` inside tmux). For the architecture and design rationale, see `architecture.md`.
+A walk-through guide for everyday use. For the terse one-screen reference, see `help.txt` (or hit `prefix + Alt + h` inside tmux). For the architecture and design rationale, see `architecture.md`.
 
 ---
 
@@ -8,11 +8,13 @@ A walk-through guide for everyday use. For the terse one-screen reference, see `
 
 You're hunting machines. Each machine you care about gets a **mark**. A mark has:
 
-| Field | Example | Lives as |
-|---|---|---|
-| Index (auto-assigned) | `m1`, `m2`, ... | Numbered slot |
-| Name (free text) | `Forge` | Human label |
-| IP (parsed automatically) | `10.10.10.42` | What you connect to |
+| Field | Example | Lives as | Notes |
+|---|---|---|---|
+| Index (auto-assigned) | `m1`, `m2`, ... | Numbered slot | Stable; never renumbered |
+| Name (free text) | `Forge` | Derived from input | Anything left after IP/host extraction |
+| Primary target | `10.10.10.42` | `$mN` | IPv4 if present, hostname otherwise |
+| Hostname (optional) | `dc01.lab.local` | `$mN_host` | Only set when input has both an IPv4 and an FQDN |
+| Pin state (optional) | `1` | `$mN_pinned` | Sticky on status bar; absent = follow recency |
 
 Behind the scenes, every mark becomes a shell variable (`$m1`, `$m2`) and shows up as a chip on your tmux status bar.
 
@@ -24,7 +26,7 @@ shell:       $ echo $m1
              Forge 10.10.10.42
 ```
 
-Older marks stay in `$mN` forever; the bar shows the most recent 3.
+Older marks stay in `$mN` forever; the bar shows up to `@huntermark-max-chips` (default 3). When you exceed that, a dim `(+X)` suffix appears, and you can `mark pin mN` (or use the all-marks popup at `prefix + m`) to choose which marks occupy bar slots.
 
 ---
 
@@ -79,20 +81,29 @@ That's the whole loop. Everything else is variations.
 ### From the shell
 
 ```bash
-mark <free-form text containing an IP>
+mark <free-form text containing an IP or hostname>
 ```
 
 Examples:
 
 ```bash
-mark Forge 10.10.10.42
+mark Forge 10.10.10.42                                # IP target
 mark linux-priv-root 10.10.10.99
 mark "HTB-Active (kerberoastable) 10.10.10.42"
-mark 10.10.10.55                      # IP only; no name
-mark vpn.client.local                 # no IP — gets stored as $mN literally
+mark 10.10.10.55                                      # IP only; no name
+mark vpn.client.local                                 # FQDN as target
+mark DC01 10.10.10.40 dc01.lab.local                  # IP + FQDN (AD-style)
+mark DC02 DC02                                        # NetBIOS-only (single label)
 ```
 
-The script picks the **first IPv4** in the input. If none, the whole input becomes `$mN`. The full input always becomes `$mN_full`.
+Parse rules:
+1. First **IPv4** in the input wins the primary slot (`$mN`).
+2. If the input also contains a **multi-label hostname** (alnum/dash labels with at least one dot, like `dc01.lab.local`), it is stored as `$mN_host`.
+3. With no IPv4, a **multi-label hostname** becomes the primary `$mN`.
+4. With neither IPv4 nor multi-label hostname, a **single-label hostname** (NetBIOS-style) is accepted — useful for AD labs where `kinit` / `evil-winrm` consume bare hostnames.
+5. Inputs that match none of the above (e.g. `--help`) are **rejected** before anything is written.
+
+**Duplicate detection**: `mark` rejects any new input whose IP or hostname matches an existing mark's `$mN` or `$mN_host` (hostnames compared case-insensitively per RFC 1035). Use `mark edit mN ...` to update in place, or `unmark mN` first.
 
 ### From inside tmux (without leaving your current pane)
 
@@ -110,6 +121,7 @@ Hit `prefix + t`. A prompt appears at the bottom: `mark target:`. Type the same 
 | `mnmap mN [args...]` | `nmap [args] $mN` |
 | `mcurl mN [args...]` | `curl [args] http://$mN` |
 | `mping mN [args...]` | `ping [args] $mN` |
+| `mhost mN` | print the hostname (`$mN_host` if set, else `$mN`; fails if the resolved value is an IPv4) |
 
 For `mssh`, the second arg is treated as the SSH username when it doesn't start with `-`; otherwise it's an ssh flag and the username defaults to `root`. Any further args pass straight to `ssh`.
 
@@ -152,11 +164,39 @@ mark edit m2 Devbox 10.10.10.250
 edited m2=10.10.10.250
 ```
 
-Index stays. Variable updates. Chip refreshes instantly when wired via `#{@huntermark-bar}` (recommended); the legacy `#(...)` form refreshes within `status-interval` (5 s).
+Index stays. Variable updates. Chip refreshes instantly when wired via `#{@huntermark-bar}` (recommended); the legacy `#(...)` form refreshes within `status-interval` (5 s). The mark's `$mN_pinned` state survives the edit; the `$mN_host` field is re-derived from the new input.
 
 ---
 
-## 6. Removing marks
+## 6. Pinning marks (overflow control)
+
+Once you have more marks than `@huntermark-max-chips`, the oldest fall off the bar. Pinning keeps specific marks sticky regardless of recency.
+
+```bash
+mark pin m1 m3            # pin m1 and m3
+mark pin                  # list currently pinned marks
+mark unpin m1             # unpin m1
+```
+
+### Render rule
+
+Visible bar = `pinned (ascending) ++ unpinned (newest first)`, capped at `@huntermark-max-chips`. Pinned marks render with a different index colour (cyan-bold by default, configurable via `@huntermark-style-pin`). When any marks are hidden, a dim `(+X)` overflow chip appears at the end.
+
+### Interactive popup
+
+`prefix + m` opens a popup showing every mark, which ones are visible, which are hidden, and an `INDEX/NAME/IP/HOST/PIN` table. Commands inside the popup:
+
+```
+p N [M ...]    pin marks       (e.g. p 1 3)
+u N [M ...]    unpin marks
+q              quit
+```
+
+Useful when you've got 8 marks and want to flip pin state without leaving tmux.
+
+---
+
+## 7. Removing marks
 
 ### Single
 
@@ -192,11 +232,11 @@ All entries land in trash.
 
 ### From inside tmux
 
-Hit `prefix + M-t`. Prompt: `remove marks (all|mN|csv):`. Same syntax as the shell command. Single Enter to submit.
+Hit `prefix + Alt + t`. Prompt: `remove marks (all|mN|csv):`. Same syntax as the shell command. Single Enter to submit.
 
 ---
 
-## 7. Undo
+## 8. Undo
 
 Restores the most recent deletion from trash:
 
@@ -219,7 +259,7 @@ Trash is capped at the most recent **20** deletion blocks (configurable via `HUN
 
 ---
 
-## 8. History
+## 9. History
 
 Append-only log of every operation: add, edit, remove, undo. Each line is timestamped (ISO 8601 with timezone).
 
@@ -243,7 +283,7 @@ The log lives at `~/.tmux/marks-history.log` and never auto-rotates — useful f
 
 ---
 
-## 9. Real-world workflows
+## 10. Real-world workflows
 
 ### CTF / HTB box
 
@@ -264,6 +304,26 @@ exit
 # Done with the box
 unmark m1
 ```
+
+### AD / Kerberos workflow
+
+For Active Directory work, store the IP and the FQDN together. `kinit`, `evil-winrm`, and `impacket-secretsdump -k` all need a hostname (not an IP) for Kerberos to work — that's what `mhost` is for.
+
+```bash
+mark DC01 10.10.10.40 dc01.lab.local
+# $m1=10.10.10.40, $m1_host=dc01.lab.local
+
+# Scans still use the IP transparently
+mnmap m1 -sV -p-
+
+# Kerberos workflows resolve to the hostname
+kinit Administrator@LAB.LOCAL
+evil-winrm -i $(mhost m1) -u Administrator -H <NTLM-hash>
+impacket-secretsdump -k -no-pass $(mhost m1)
+impacket-GetUserSPNs lab.local/svc_sql -k -no-pass -dc-ip $m1
+```
+
+For NetBIOS-only AD labs without a public FQDN, single-label hostnames are accepted: `mark DC02 DC02` produces `$m2=DC02`.
 
 ### Multi-box engagement
 
@@ -317,7 +377,7 @@ You're SSH'd into m1 in pane 2, doing post-exploit. Want to mark a new internal 
 
 ---
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 ### `mark` command not found
 
@@ -353,10 +413,19 @@ The shell hasn't sourced `~/.tmux/marks.sh` yet. Hit Enter once to trigger precm
 
 ### Chip shows last 3 but I have 5 marks — where are the others?
 
-By design — the bar caps at 3 by default to avoid clutter. The full set is in `mark` (no-args output) and as `$mN` variables. To raise the cap:
+By design — the bar caps at `@huntermark-max-chips` (default 3) to avoid clutter. The full set is in `mark` (no-args output) and as `$mN` variables. A dim `(+X)` chip on the bar reflects how many marks are hidden.
+
+To always keep specific marks visible regardless of recency:
+```bash
+mark pin m1 m3        # m1 and m3 always occupy bar slots
+```
+
+To raise the cap:
 ```tmux
 set -g @huntermark-max-chips 5
 ```
+
+To see everything and rearrange interactively, hit `prefix + m`.
 
 ### `mark undo` says "trash empty" but I just deleted something
 
@@ -373,7 +442,7 @@ Marks are stored via `printf %q`, which escapes spaces, quotes, and shell metach
 
 ---
 
-## 11. Customization
+## 12. Customization
 
 All optional. Set in your `tmux.conf` before the `run` line that loads TPM:
 
@@ -382,11 +451,14 @@ All optional. Set in your `tmux.conf` before the `run` line that loads TPM:
 set -g @huntermark-chord-add 't'              # default 't'
 set -g @huntermark-chord-remove 'M-t'         # default 'M-t'
 set -g @huntermark-chord-help 'M-h'           # default 'M-h'
+set -g @huntermark-chord-popup 'm'            # default 'm' — all-marks popup
 
 # Visual
 set -g @huntermark-max-chips 3                # how many chips on the status bar
 set -g @huntermark-style-index 'fg=brightblack'   # styling of "mN:" prefix
 set -g @huntermark-style-value 'fg=yellow,bold'   # styling of the chip value
+set -g @huntermark-style-pin 'fg=cyan,bold'       # styling of pinned-mark index
+set -g @huntermark-style-overflow 'fg=brightblack' # styling of "(+X)" overflow chip
 ```
 
 Shell-side env vars (set in `~/.bashrc` / `~/.zshrc` before the `source` line):
@@ -399,17 +471,17 @@ export HUNTERMARK_HELP_FILE=/path/to/help.txt # default ~/.config/tmux/huntermar
 
 ---
 
-## 12. What's NOT in HunterMark today
+## 13. What's NOT in HunterMark today
 
 These are deliberate omissions. Reasonable adds in future versions if there's demand:
 
-- **Pin / primary mark** — no way to mark one as the "focal" target with distinct styling
-- **Per-mark metadata** — no fields for OS, privilege level, found credentials, notes
+- **Richer per-mark metadata** — fields for OS, privilege level, found credentials, scan results, free-form notes. (`$mN_host` is the only such field today.)
 - **By-name lookup** — `mark lookup forge` to find the index for a known name
 - **Multi-target / engagement scoping** — all marks live in one global namespace
 - **OPSEC redact mode** — chip always shows full text on the bar (visible in screenshots)
 - **Bulk undo** — `mark undo` restores one at a time, even after `unmark all`
 - **Liveness check** — chip doesn't dim when the host becomes unreachable
 - **Auto SSH wrapping** — no auto-detection of "you just SSH'd into a box, want to mark it?"
+- **nmap import** — no `mark scan <subnet>` / `mark enrich mN` yet
 
 If any of these matter for your workflow, open an issue. Most are clean follow-ons that fit the current file format.

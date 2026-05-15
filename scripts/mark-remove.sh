@@ -46,7 +46,7 @@ _capture_and_strip() {
   for n in $removed_indices; do
     {
       printf "# deleted %s\n" "$ts"
-      grep -E "^export ${n}(=|_full=)" "$F"
+      grep -E "^export ${n}(=|_full=|_host=|_pinned=)" "$F"
     } >> "$TRASH"
 
     # Resolve the unescaped value by sourcing the entry in a subshell
@@ -56,7 +56,7 @@ _capture_and_strip() {
     printf "%s\tremove\t%s\t%s\n" "$ts" "$n" "$full" >> "$HISTORY"
   done
 
-  local strip_re="^export (${pattern//[\^\$]/})(=|_full=)"
+  local strip_re="^export (${pattern//[\^\$]/})(=|_full=|_host=|_pinned=)"
   grep -vE "$strip_re" "$F" > "${F}.new" || true
   mv "${F}.new" "$F"
 }

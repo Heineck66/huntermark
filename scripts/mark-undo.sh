@@ -42,7 +42,9 @@ fi
 # Re-emit the export lines with target_n substituted
 restored=$(echo "$exports" \
   | sed "s|^export m${orig_n}=|export m${target_n}=|" \
-  | sed "s|^export m${orig_n}_full=|export m${target_n}_full=|")
+  | sed "s|^export m${orig_n}_full=|export m${target_n}_full=|" \
+  | sed "s|^export m${orig_n}_host=|export m${target_n}_host=|" \
+  | sed "s|^export m${orig_n}_pinned=|export m${target_n}_pinned=|")
 
 echo "$restored" >> "$F"
 

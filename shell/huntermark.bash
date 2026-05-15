@@ -6,29 +6,63 @@
 : "${HUNTERMARK_HELPER_DIR:=$HOME/.config/tmux}"
 : "${HUNTERMARK_HELP_FILE:=$HOME/.config/tmux/huntermark-help.txt}"
 
+# Convert args (m1 m2 / 1 2 / m1,m2) -> canonical mN,mN csv. Internal helper.
+_mark_args_to_csv() {
+  local out="" tok arg
+  for arg in "$@"; do
+    IFS=',' read -ra _toks <<< "$arg"
+    for tok in "${_toks[@]}"; do
+      tok="${tok#m}"
+      [[ "$tok" =~ ^[0-9]+$ ]] && out="${out}${out:+,}m${tok}"
+    done
+  done
+  printf '%s' "$out"
+}
+
 mark() {
   if [ "$#" -eq 0 ]; then
     if [ ! -r "$HOME/.tmux/marks.sh" ]; then
-      echo "no marks set" >&2
-      return 1
+      echo "no marks set" >&2; return 1
     fi
     source "$HOME/.tmux/marks.sh"
+
+    local has_host=0 v
+    for v in $(compgen -v 2>/dev/null); do
+      [[ "$v" =~ ^m[0-9]+_host$ ]] && { has_host=1; break; }
+    done
+
     {
-      printf 'INDEX\tNAME\tIP\n'
-      local v n ip full ipvar
+      if [ "$has_host" -eq 1 ]; then
+        printf 'INDEX\tNAME\tIP\tHOST\tPIN\n'
+      else
+        printf 'INDEX\tNAME\tIP\tPIN\n'
+      fi
+      local n ip host pinned full ipvar hostvar pinvar pin_mark name
       for v in $(compgen -v 2>/dev/null); do
         [[ "$v" =~ ^m[0-9]+_full$ ]] || continue
         n="${v#m}"; n="${n%_full}"
-        ipvar="m${n}"
-        ip="${!ipvar}"
+        ipvar="m${n}";    ip="${!ipvar}"
+        hostvar="m${n}_host"; host="${!hostvar:-}"
+        pinvar="m${n}_pinned"; pinned="${!pinvar:-}"
         full="${!v}"
-        name=$(echo "$full" | sed "s|[[:space:]]*${ip}[[:space:]]*| |g; s/^[[:space:]]*//; s/[[:space:]]*$//")
+        name="$full"
+        [ -n "$ip" ]   && name=$(echo "$name" | sed "s|[[:space:]]*${ip}[[:space:]]*| |g")
+        [ -n "$host" ] && name=$(echo "$name" | sed "s|[[:space:]]*${host}[[:space:]]*| |gI")
+        name=$(echo "$name" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
         [ -z "$name" ] && name='-'
-        printf 'm%s\t%s\t%s\n' "$n" "$name" "$ip"
+        pin_mark='-'
+        [ "$pinned" = "1" ] && pin_mark='*'
+        if [ "$has_host" -eq 1 ]; then
+          [ -z "$host" ] && host='-'
+          printf 'm%s\t%s\t%s\t%s\t%s\n' "$n" "$name" "$ip" "$host" "$pin_mark"
+        else
+          printf 'm%s\t%s\t%s\t%s\n' "$n" "$name" "$ip" "$pin_mark"
+        fi
       done | sort -k1.2 -n
     } | column -t -s $'\t'
     return 0
   fi
+
   case "$1" in
     help)
       if command -v tmux >/dev/null && [ -n "$TMUX" ]; then
@@ -42,6 +76,45 @@ mark() {
       shift
       local n="$1"; shift
       "$HUNTERMARK_HELPER_DIR/mark-edit.sh" "$n" "$*"
+      source "$HOME/.tmux/marks.sh" 2>/dev/null
+      return 0
+      ;;
+    pin)
+      shift
+      local csv
+      csv=$(_mark_args_to_csv "$@")
+      if [ -z "$csv" ]; then
+        if [ ! -r "$HOME/.tmux/marks.sh" ]; then
+          echo "no marks set" >&2; return 1
+        fi
+        source "$HOME/.tmux/marks.sh"
+        local var pn pinned_list=""
+        for var in $(compgen -v 2>/dev/null); do
+          [[ "$var" =~ ^m[0-9]+_pinned$ ]] || continue
+          [ "${!var}" = "1" ] || continue
+          pn="${var%_pinned}"
+          pinned_list="${pinned_list}${pinned_list:+, }${pn}"
+        done
+        if [ -n "$pinned_list" ]; then
+          echo "pinned: ${pinned_list}"
+        else
+          echo "no pinned marks"
+        fi
+        return 0
+      fi
+      "$HUNTERMARK_HELPER_DIR/mark-pin.sh" "$csv"
+      source "$HOME/.tmux/marks.sh" 2>/dev/null
+      return 0
+      ;;
+    unpin)
+      shift
+      local csv
+      csv=$(_mark_args_to_csv "$@")
+      if [ -z "$csv" ]; then
+        echo "usage: mark unpin mN [mM ...]" >&2
+        return 1
+      fi
+      "$HUNTERMARK_HELPER_DIR/mark-pin.sh" "$csv" --unset
       source "$HOME/.tmux/marks.sh" 2>/dev/null
       return 0
       ;;
@@ -81,24 +154,38 @@ unmark() {
   if [ "$arg" = "all" ]; then
     local v
     for v in $(compgen -v); do
-      if [[ "$v" =~ ^m[0-9]+(_full)?$ ]]; then unset "$v"; fi
+      if [[ "$v" =~ ^m[0-9]+(_full|_host|_pinned)?$ ]]; then unset "$v"; fi
     done
   else
     local n
     for n in $(echo "$arg" | tr ',' ' ' | grep -oE 'm[0-9]+'); do
-      unset "$n" "${n}_full"
+      unset "$n" "${n}_full" "${n}_host" "${n}_pinned"
     done
   fi
 }
 
-# Resolve mN -> IP. Echo the IP, return 1 if not set.
+# Resolve mN -> primary value ($mN). Echo it, return 1 if not set.
 _mark_resolve() {
   local n="$1"
   if ! [[ "$n" =~ ^m[0-9]+$ ]]; then echo "expected mN (e.g. m1, m2)" >&2; return 1; fi
   [ -r "$HOME/.tmux/marks.sh" ] && source "$HOME/.tmux/marks.sh" 2>/dev/null
-  local ip="${!n}"
-  [ -z "$ip" ] && { echo "$n not set" >&2; return 1; }
-  printf '%s' "$ip"
+  local val="${!n}"
+  [ -z "$val" ] && { echo "$n not set" >&2; return 1; }
+  printf '%s' "$val"
+}
+
+# Resolve mN -> hostname. Prefers $mN_host, falls back to $mN. Fails if the
+# resolved value contains no letters (it's an IPv4) — Kerberos-aware tools
+# would just complain about the bare IP, so we fail loudly here.
+mhost() {
+  local n="$1"
+  if ! [[ "$n" =~ ^m[0-9]+$ ]]; then echo "expected mN (e.g. m1, m2)" >&2; return 1; fi
+  [ -r "$HOME/.tmux/marks.sh" ] && source "$HOME/.tmux/marks.sh" 2>/dev/null
+  local host_var="${n}_host"
+  local host="${!host_var:-${!n}}"
+  [ -z "$host" ] && { echo "$n not set" >&2; return 1; }
+  [[ "$host" =~ [A-Za-z] ]] || { echo "$n has no hostname (only IPv4): $host" >&2; return 1; }
+  printf '%s' "$host"
 }
 
 mssh() {
